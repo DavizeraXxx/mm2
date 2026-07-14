@@ -1,636 +1,844 @@
 --[[
-    Proton Menu - Murder Mystery 2
-    Versão Final - 100% Funcional
-    ESP Box + Skeleton + Aimbot + Teleport + Logs + Noclip
---]]
+    Proton Mini - Menu Secundário com Coin Farm + Fly + Speed
+    Proporção: 300x350
+]]
 
--- Services
+-- Serviços
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
 
--- Proton Menu Table
-local Proton = {
+-- ======================
+-- VARIÁVEIS
+-- ======================
+local Mini = {
     Open = true,
-    SelectedTab = "Aimbot",
+    SelectedTab = "Main",
+    GUI = {},
     Options = {
-        Aimbot = false,
-        AimbotFOV = 100,
-        ShowFOV = true,
-        ESPEnabled = true,
-        ESPBox = true,
-        ESPSkeleton = false,
-        ESPName = true,
-        ESPDistance = true,
-        Noclip = false,
-        ESPGun = false,
+        CoinFarm = false,
+        XRay = false,
+        KillAll = false,
+        KillAura = false,
+        FarmSpeed = 50
     },
-    FOVCircle = nil,
-    ESPLines = {},
-    ESPTexts = {},
+    Connections = {},
+    XRayObjects = {},
+    FarmTarget = nil,
+    CurrentSpeed = 50
 }
 
--- Notify
-function Proton:Notify(title, text, duration)
+-- ======================
+-- NOTIFICAÇÃO
+-- ======================
+function Mini:Notify(text)
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title,
+            Title = "Proton Mini",
             Text = text,
-            Duration = duration or 3
+            Duration = 2
         })
     end)
+    print("[Proton Mini]", text)
 end
 
--- Tween
-local function tween(obj, props, dur)
-    local info = TweenInfo.new(dur or 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local t = TweenService:Create(obj, info, props)
-    t:Play()
+-- ======================
+-- ANTI-CHEAT BYPASS
+-- ======================
+local function BypassAntiCheat()
+    pcall(function()
+        local antiCheat = game:FindFirstChild("AntiCheat")
+        if antiCheat then antiCheat:Destroy() end
+    end)
 end
+BypassAntiCheat()
 
--- Get Player Team
-function Proton:GetTeam(player)
+-- ======================
+-- FUNÇÃO: GET TEAM
+-- ======================
+function Mini:GetTeam(player)
     local char = player.Character
     local bp = player:FindFirstChild("Backpack")
-    
     if (bp and bp:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then
-        return "Murderer", Color3.fromRGB(255, 50, 50)
+        return "Murderer"
     elseif (bp and bp:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun")) then
-        return "Sheriff", Color3.fromRGB(50, 100, 255)
+        return "Sheriff"
     else
-        return "Innocent", Color3.fromRGB(50, 255, 50)
+        return "Innocent"
     end
 end
 
--- ESP Functions
-function Proton:GetCorners(part)
-    local cf, sz = part.CFrame, part.Size / 2
-    local c = {}
-    for x = -1, 1, 2 do
-        for y = -1, 1, 2 do
-            for z = -1, 1, 2 do
-                c[#c + 1] = (cf * CFrame.new(sz * Vector3.new(x, y, z))).Position
-            end
-        end
-    end
-    return c
-end
+-- ======================
+-- FUNÇÃO: APLICAR NOCLIP (ATRAVESSAR PAREDES)
+-- ======================
+local noclipActive = false
+local noclipConnection = nil
 
-function Proton:DrawLine(from, to, color)
-    local fs, fv = Camera:WorldToViewportPoint(from)
-    local ts, tv = Camera:WorldToViewportPoint(to)
-    if not fv and not tv then return end
-    
-    local line = Drawing.new("Line")
-    line.Thickness = 1.5
-    line.From = Vector2.new(fs.X, fs.Y)
-    line.To = Vector2.new(ts.X, ts.Y)
-    line.Color = color
-    line.Transparency = 1
-    line.Visible = true
-    table.insert(self.ESPLines, line)
-end
-
-function Proton:DrawText(pos, text, color, size)
-    local sp, ov = Camera:WorldToViewportPoint(pos)
-    if not ov then return end
-    
-    local txt = Drawing.new("Text")
-    txt.Position = Vector2.new(sp.X, sp.Y)
-    txt.Text = text
-    txt.Color = color
-    txt.Size = size or 14
-    txt.Center = true
-    txt.Outline = true
-    txt.Visible = true
-    table.insert(self.ESPTexts, txt)
-end
-
-function Proton:DrawBox(player, color)
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local corners = self:GetCorners({CFrame = hrp.CFrame * CFrame.new(0, -0.5, 0), Size = Vector3.new(3, 5, 3)})
-    local edges = {{1,2},{2,6},{6,5},{5,1},{1,3},{2,4},{6,8},{5,7},{3,4},{4,8},{8,7},{7,3}}
-    
-    for _, e in pairs(edges) do
-        self:DrawLine(corners[e[1]], corners[e[2]], color)
-    end
-end
-
-function Proton:DrawSkeleton(player, color)
-    local char = player.Character
-    if not char then return end
-    
-    local bones = {
-        {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-        {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-        {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-        {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-        {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
-    }
-    
-    for _, b in pairs(bones) do
-        local p1 = char:FindFirstChild(b[1])
-        local p2 = char:FindFirstChild(b[2])
-        if p1 and p2 then
-            self:DrawLine(p1.Position, p2.Position, color)
-        end
-    end
-end
-
-function Proton:UpdateESP()
-    -- Clear
-    for _, l in pairs(self.ESPLines) do if l then l:Remove() end end
-    for _, t in pairs(self.ESPTexts) do if t then t:Remove() end end
-    self.ESPLines = {}
-    self.ESPTexts = {}
-    
-    if not self.Options.ESPEnabled then return end
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            local head = player.Character:FindFirstChild("Head")
-            if not hrp or not head then continue end
-            
-            local teamName, teamColor = self:GetTeam(player)
-            local dist = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and math.floor((LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude) or 0
-            
-            if self.Options.ESPBox then
-                self:DrawBox(player, teamColor)
-            end
-            
-            if self.Options.ESPSkeleton then
-                self:DrawSkeleton(player, teamColor)
-            end
-            
-            if self.Options.ESPName then
-                self:DrawText(head.Position + Vector3.new(0, 1.5, 0), player.Name, Color3.new(1,1,1), 16)
-            end
-            
-            if self.Options.ESPDistance then
-                self:DrawText(head.Position + Vector3.new(0, 1.1, 0), "[" .. dist .. "m]", Color3.new(1,1,1), 14)
-            end
-        end
-    end
-end
-
--- Aimbot
-function Proton:GetClosestMurderer()
-    local closest = nil
-    local minDist = self.Options.AimbotFOV
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-            local teamName, _ = self:GetTeam(player)
-            if teamName == "Murderer" then
-                local head = player.Character.Head
-                local sp, ov = Camera:WorldToViewportPoint(head.Position)
-                if ov then
-                    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if d < minDist then
-                        minDist = d
-                        closest = player
+function Mini:EnableNoclip(state)
+    noclipActive = state
+    if state then
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
                     end
+                end
+            end
+        end)
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
                 end
             end
         end
     end
-    
-    return closest
 end
 
-function Proton:UpdateFOV()
-    if self.Options.Aimbot and self.Options.ShowFOV then
-        if not self.FOVCircle then
-            local c = Drawing.new("Circle")
-            c.Color = Color3.fromRGB(30, 58, 95)
-            c.Thickness = 1.5
-            c.Transparency = 0.7
-            c.Filled = false
-            c.Radius = self.Options.AimbotFOV
-            c.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-            c.Visible = true
-            self.FOVCircle = c
-        else
-            self.FOVCircle.Radius = self.Options.AimbotFOV
-            self.FOVCircle.Visible = true
-        end
-    else
-        if self.FOVCircle then
-            self.FOVCircle.Visible = false
-        end
+-- ======================
+-- FUNÇÃO: SETAR VELOCIDADE
+-- ======================
+function Mini:SetSpeed(speed)
+    Mini.CurrentSpeed = math.clamp(speed, 16, 200)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = Mini.CurrentSpeed
     end
 end
 
--- Teleport
-function Proton:TeleportToGun()
+-- ======================
+-- FUNÇÃO: VOAR ATÉ A MOEDA
+-- ======================
+function Mini:FlyToTarget(targetPosition)
+    local char = LocalPlayer.Character
+    if not char then return false end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not hrp or not humanoid then return false end
+    
+    -- Ativar noclip
+    Mini:EnableNoclip(true)
+    
+    -- Definir velocidade
+    humanoid.WalkSpeed = Mini.CurrentSpeed
+    
+    -- Calcular direção e distância
+    local direction = (targetPosition - hrp.Position).Unit
+    local distance = (hrp.Position - targetPosition).Magnitude
+    
+    -- Mover em direção ao alvo
+    humanoid:MoveTo(targetPosition)
+    
+    -- Loop de movimento com noclip
+    local timeout = tick() + 10
+    local lastPos = hrp.Position
+    local stuckCount = 0
+    
+    while distance > 3 and tick() < timeout do
+        RunService.Heartbeat:Wait()
+        
+        -- Atualizar distância
+        distance = (hrp.Position - targetPosition).Magnitude
+        
+        -- Verificar se está preso
+        if (hrp.Position - lastPos).Magnitude < 0.5 then
+            stuckCount = stuckCount + 1
+            if stuckCount > 5 then
+                -- Se estiver preso, tentar subir
+                local newTarget = targetPosition + Vector3.new(0, 5, 0)
+                humanoid:MoveTo(newTarget)
+                stuckCount = 0
+            end
+        else
+            stuckCount = 0
+        end
+        lastPos = hrp.Position
+        
+        -- Continuar movendo
+        if distance > 3 then
+            humanoid:MoveTo(targetPosition)
+        end
+    end
+    
+    -- Desativar noclip após chegar
+    Mini:EnableNoclip(false)
+    
+    return distance <= 3
+end
+
+-- ======================
+-- COIN FARM - COMPLETO
+-- ======================
+function Mini:FindNearestCoin()
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return nil end
+    
+    local nearest = nil
+    local minDist = math.huge
+    
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Name == "Coin_Server" then
+            local dist = (myHrp.Position - obj.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = obj
+            end
+        end
+    end
+    
+    return nearest, minDist
+end
+
+function Mini:CollectCoin(coinPart)
+    pcall(function()
+        coinPart:Destroy()
+        local parent = coinPart.Parent
+        if parent then
+            local visual = parent:FindFirstChild("CoinVisual")
+            if visual then visual:Destroy() end
+        end
+        Mini:Notify("💰 Moeda coletada!")
+        return true
+    end)
+    return false
+end
+
+function Mini:ToggleCoinFarm(state)
+    Mini.Options.CoinFarm = state
+    
+    if state then
+        if Mini.Connections.CoinFarm then Mini.Connections.CoinFarm:Disconnect() end
+        
+        Mini:Notify("💰 Coin Farm ativada - velocidade: " .. Mini.CurrentSpeed)
+        
+        -- Aplicar velocidade e noclip
+        Mini:SetSpeed(Mini.CurrentSpeed)
+        Mini:EnableNoclip(true)
+        
+        Mini.Connections.CoinFarm = RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            
+            local humanoid = char:FindFirstChild("Humanoid")
+            if not humanoid then return end
+            
+            -- Manter velocidade
+            if humanoid.WalkSpeed ~= Mini.CurrentSpeed then
+                humanoid.WalkSpeed = Mini.CurrentSpeed
+            end
+            
+            -- Encontrar moeda mais próxima
+            local coin, dist = Mini:FindNearestCoin()
+            if coin and dist then
+                if dist > 5 then
+                    -- Voar até a moeda
+                    Mini:FlyToTarget(coin.Position)
+                else
+                    -- Coletar moeda
+                    local collected = Mini:CollectCoin(coin)
+                    if collected then
+                        task.wait(0.1)
+                    end
+                end
+            end
+        end)
+    else
+        if Mini.Connections.CoinFarm then
+            Mini.Connections.CoinFarm:Disconnect()
+            Mini.Connections.CoinFarm = nil
+        end
+        -- Desativar noclip
+        Mini:EnableNoclip(false)
+        -- Resetar velocidade
+        Mini:SetSpeed(16)
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid:MoveTo(Vector3.new(0, 0, 0))
+        end
+        Mini:Notify("💰 Coin Farm desativada")
+    end
+end
+
+-- ======================
+-- X-RAY
+-- ======================
+function Mini:ToggleXRay(state)
+    Mini.Options.XRay = state
+    
+    for _, obj in pairs(Mini.XRayObjects) do
+        if obj then obj:Destroy() end
+    end
+    Mini.XRayObjects = {}
+    
+    if state then
+        Mini:Notify("👁️ X-Ray ativado")
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.fromRGB(255, 255, 0)
+                highlight.FillTransparency = 0.3
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.OutlineTransparency = 0.2
+                highlight.Adornee = player.Character
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Parent = player
+                table.insert(Mini.XRayObjects, highlight)
+            end
+        end
+    else
+        Mini:Notify("👁️ X-Ray desativado")
+    end
+end
+
+-- ======================
+-- KILL AURA
+-- ======================
+function Mini:ToggleKillAura(state)
+    Mini.Options.KillAura = state
+    
+    if state then
+        if Mini.Connections.KillAura then Mini.Connections.KillAura:Disconnect() end
+        
+        Mini.Connections.KillAura = RunService.Heartbeat:Connect(function()
+            local myTeam = Mini:GetTeam(LocalPlayer)
+            if myTeam ~= "Murderer" then return end
+            
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+                    local humanoid = player.Character.Humanoid
+                    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    local targetHrp = player.Character:FindFirstChild("HumanoidRootPart")
+                    
+                    if myHrp and targetHrp then
+                        local dist = (myHrp.Position - targetHrp.Position).Magnitude
+                        if dist < 15 and humanoid.Health > 0 then
+                            humanoid.Health = 0
+                            Mini:Notify("⚔️ Matou " .. player.Name)
+                        end
+                    end
+                end
+            end
+        end)
+        Mini:Notify("⚔️ Kill Aura ativada")
+    else
+        if Mini.Connections.KillAura then
+            Mini.Connections.KillAura:Disconnect()
+            Mini.Connections.KillAura = nil
+        end
+        Mini:Notify("⚔️ Kill Aura desativada")
+    end
+end
+
+-- ======================
+-- KILL ALL
+-- ======================
+function Mini:KillAll()
+    Mini:Notify("🔪 Matando todos...")
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+            local humanoid = player.Character.Humanoid
+            if humanoid.Health > 0 then
+                humanoid.Health = 0
+            end
+        end
+    end
+    Mini:Notify("✅ Todos mortos!")
+end
+
+-- ======================
+-- TELEPORT
+-- ======================
+function Mini:TeleportToGun()
+    Mini:Notify("🔫 Procurando arma...")
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Tool") and obj.Name:lower():find("gun") and obj:FindFirstChild("Handle") then
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                LocalPlayer.Character.HumanoidRootPart.CFrame = obj.Handle.CFrame + Vector3.new(0, 3, 0)
-                self:Notify("Teleport", "Arma encontrada!", 2)
+            local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if myHrp then
+                myHrp.CFrame = obj.Handle.CFrame + Vector3.new(0, 2, 0)
+                Mini:Notify("✅ Teleportado para arma!")
                 return
             end
         end
     end
-    self:Notify("Erro", "Arma não encontrada!", 2)
+    Mini:Notify("❌ Arma não encontrada!")
 end
 
-function Proton:CopyLogs()
-    local s, m = "Nenhum", "Nenhum"
-    for _, p in pairs(Players:GetPlayers()) do
-        local t, _ = self:GetTeam(p)
-        if t == "Sheriff" then s = p.Name
-        elseif t == "Murderer" then m = p.Name end
+function Mini:TeleportToMurder()
+    Mini:Notify("🔪 Procurando Murderer...")
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local team = Mini:GetTeam(player)
+            if team == "Murderer" and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if myHrp then
+                    myHrp.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 0)
+                    Mini:Notify("✅ Teleportado para Murderer: " .. player.Name)
+                    return
+                end
+            end
+        end
     end
-    
-    local log = "Sheriff: " .. s .. " | Murderer: " .. m
-    pcall(setclipboard, log)
-    pcall(function() syn.write_clipboard(log) end)
-    self:Notify("Logs", "Copiado: " .. log, 3)
+    Mini:Notify("❌ Murderer não encontrado!")
 end
 
--- Create GUI
-function Proton:CreateWindow()
-    -- ScreenGui
+function Mini:TeleportToSheriff()
+    Mini:Notify("⭐ Procurando Sheriff...")
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local team = Mini:GetTeam(player)
+            if team == "Sheriff" and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if myHrp then
+                    myHrp.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 0)
+                    Mini:Notify("✅ Teleportado para Sheriff: " .. player.Name)
+                    return
+                end
+            end
+        end
+    end
+    Mini:Notify("❌ Sheriff não encontrado!")
+end
+
+function Mini:TeleportToLobby()
+    Mini:Notify("🏠 Teleportando para o lobby...")
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if myHrp then
+        myHrp.CFrame = CFrame.new(0, 3, 0)
+        Mini:Notify("✅ Teleportado para o centro!")
+    else
+        Mini:Notify("❌ Não foi possível teleportar!")
+    end
+end
+
+-- ======================
+-- CRIAR MENU
+-- ======================
+function Mini:CreateWindow()
     local gui = Instance.new("ScreenGui")
-    gui.Name = "ProtonMenu"
+    gui.Name = "ProtonMini"
+    gui.ResetOnSpawn = false
     gui.Parent = CoreGui
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    
-    -- Main
+    self.GUI.ScreenGui = gui
+
     local main = Instance.new("Frame")
-    main.Name = "Main"
-    main.Size = UDim2.new(0, 550, 0, 350)
-    main.Position = UDim2.new(0.5, -275, 0.5, -175)
+    main.Size = UDim2.new(0, 300, 0, 380)
+    main.Position = UDim2.new(0.5, -150, 0.5, -190)
     main.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     main.BorderSizePixel = 0
     main.ClipsDescendants = true
+    main.Visible = true
     main.Parent = gui
-    
     Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
     
     local stroke = Instance.new("UIStroke", main)
     stroke.Color = Color3.fromRGB(30, 58, 95)
     stroke.Thickness = 1.5
-    
+    self.GUI.Main = main
+
     -- Title Bar
     local titleBar = Instance.new("Frame")
-    titleBar.Name = "TitleBar"
     titleBar.Size = UDim2.new(1, 0, 0, 30)
     titleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     titleBar.BorderSizePixel = 0
     titleBar.Parent = main
     
     local title = Instance.new("TextLabel", titleBar)
-    title.Size = UDim2.new(0, 150, 1, 0)
-    title.Position = UDim2.new(0, 10, 0, 0)
+    title.Size = UDim2.new(0, 60, 1, 0)
+    title.Position = UDim2.new(0, 8, 0, 0)
     title.BackgroundTransparency = 1
     title.Font = Enum.Font.GothamBold
-    title.Text = "Proton Menu"
+    title.Text = "Proton"
     title.TextColor3 = Color3.new(1, 1, 1)
-    title.TextSize = 15
+    title.TextSize = 14
     title.TextXAlignment = Enum.TextXAlignment.Left
-    
-    -- Close
-    local close = Instance.new("TextButton", titleBar)
-    close.Size = UDim2.new(0, 26, 0, 26)
-    close.Position = UDim2.new(1, -30, 0, 2)
-    close.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    close.Font = Enum.Font.GothamBold
-    close.Text = "×"
-    close.TextColor3 = Color3.new(1, 1, 1)
-    close.TextSize = 16
-    Instance.new("UICorner", close).CornerRadius = UDim.new(0, 4)
-    
-    close.MouseButton1Click:Connect(function()
-        gui:Destroy()
-        if Proton.FOVCircle then Proton.FOVCircle:Remove() end
+
+    local miniLabel = Instance.new("TextLabel", titleBar)
+    miniLabel.Size = UDim2.new(0, 30, 1, 0)
+    miniLabel.Position = UDim2.new(0, 55, 0, 2)
+    miniLabel.BackgroundTransparency = 1
+    miniLabel.Font = Enum.Font.Gotham
+    miniLabel.Text = "Mini"
+    miniLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    miniLabel.TextSize = 10
+    miniLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- Botões de controle
+    local minimizeBtn = Instance.new("TextButton", titleBar)
+    minimizeBtn.Size = UDim2.new(0, 20, 0, 20)
+    minimizeBtn.Position = UDim2.new(1, -44, 0.5, -10)
+    minimizeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    minimizeBtn.Font = Enum.Font.GothamBold
+    minimizeBtn.Text = "−"
+    minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+    minimizeBtn.TextSize = 14
+    Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(0, 4)
+
+    local closeBtn = Instance.new("TextButton", titleBar)
+    closeBtn.Size = UDim2.new(0, 20, 0, 20)
+    closeBtn.Position = UDim2.new(1, -22, 0.5, -10)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Text = "×"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 14
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
+    closeBtn.MouseButton1Click:Connect(function() self.GUI.ScreenGui:Destroy() end)
+
+    -- Minimizar
+    local minimized = false
+    local originalSize = main.Size
+    minimizeBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+                Size = UDim2.new(0, 300, 0, 30)
+            }):Play()
+            self.GUI.Content.Visible = false
+            for _, btn in pairs(self.GUI.TabButtons or {}) do
+                btn.Visible = false
+            end
+            minimizeBtn.Text = "+"
+        else
+            TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+                Size = originalSize
+            }):Play()
+            self.GUI.Content.Visible = true
+            for _, btn in pairs(self.GUI.TabButtons or {}) do
+                btn.Visible = true
+            end
+            minimizeBtn.Text = "−"
+        end
     end)
-    
+
     -- Tabs
-    local tabs = {"Aimbot", "ESP", "Teleport", "Logs", "Misc"}
+    local tabs = {"Main", "Player", "Teleport"}
     local tabBtns = {}
     
     for i, name in pairs(tabs) do
         local btn = Instance.new("TextButton")
         btn.Name = name
-        btn.Size = UDim2.new(0, 90, 0, 26)
-        btn.Position = UDim2.new(0, 10 + ((i-1) * 95), 0, 35)
+        btn.Size = UDim2.new(0, 90, 0, 24)
+        btn.Position = UDim2.new(0, 5 + ((i-1) * 95), 0, 35)
         btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         btn.Font = Enum.Font.Gotham
         btn.Text = name
         btn.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-        btn.TextSize = 13
+        btn.TextSize = 11
         btn.Parent = main
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
         
         btn.MouseButton1Click:Connect(function()
-            Proton.SelectedTab = name
-            for _, b in pairs(tabBtns) do b.BackgroundColor3 = Color3.fromRGB(20, 20, 20) end
+            Mini.SelectedTab = name
+            for _, b in pairs(tabBtns) do 
+                b.BackgroundColor3 = Color3.fromRGB(20, 20, 20) 
+            end
             btn.BackgroundColor3 = Color3.fromRGB(30, 58, 95)
-            Proton:LoadTab(name)
+            Mini:LoadTab(name)
         end)
         
         table.insert(tabBtns, btn)
     end
-    
     tabBtns[1].BackgroundColor3 = Color3.fromRGB(30, 58, 95)
-    
+    self.GUI.TabButtons = tabBtns
+
     -- Content
     local content = Instance.new("ScrollingFrame")
-    content.Name = "Content"
-    content.Size = UDim2.new(1, -20, 1, -75)
-    content.Position = UDim2.new(0, 10, 0, 70)
+    content.Size = UDim2.new(1, -10, 1, -75)
+    content.Position = UDim2.new(0, 5, 0, 70)
     content.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     content.BorderSizePixel = 0
-    content.ScrollBarThickness = 4
+    content.ScrollBarThickness = 3
     content.ScrollBarImageColor3 = Color3.fromRGB(30, 58, 95)
     content.CanvasSize = UDim2.new(0, 0, 0, 0)
     content.Parent = main
     Instance.new("UICorner", content).CornerRadius = UDim.new(0, 4)
-    
-    self.GUI = {ScreenGui = gui, Main = main, Content = content}
-    
+    self.GUI.Content = content
+
     -- Dragging
     local dragging, dragStart, startPos
     titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
             dragStart = input.Position
             startPos = main.Position
-            
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
         end
     end)
     
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
             local delta = input.Position - dragStart
             main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
-    
-    -- Load first tab
-    Proton:LoadTab("Aimbot")
+
+    Mini:LoadTab("Main")
+    Mini:Notify("Proton Mini aberto!")
 end
 
--- Load Tab Content
-function Proton:LoadTab(name)
+-- ======================
+-- CARREGAR TAB
+-- ======================
+function Mini:LoadTab(name)
     local content = self.GUI.Content
-    for _, c in pairs(content:GetChildren()) do c:Destroy() end
+    for _, child in pairs(content:GetChildren()) do
+        child:Destroy()
+    end
     
-    local y = 10
-    
-    -- Helper functions
-    local function AddToggle(text, option, callback)
+    local y = 5
+    local function addToggle(text, option, callback)
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -20, 0, 30)
-        frame.Position = UDim2.new(0, 10, 0, y)
+        frame.Size = UDim2.new(1, -10, 0, 25)
+        frame.Position = UDim2.new(0, 5, 0, y)
         frame.BackgroundTransparency = 1
         frame.Parent = content
-        
+
         local label = Instance.new("TextLabel", frame)
-        label.Size = UDim2.new(1, -50, 1, 0)
+        label.Size = UDim2.new(1, -40, 1, 0)
         label.Font = Enum.Font.Gotham
         label.Text = text
         label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextSize = 14
+        label.TextSize = 12
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.BackgroundTransparency = 1
-        
+
         local btn = Instance.new("TextButton", frame)
-        btn.Size = UDim2.new(0, 40, 0, 20)
-        btn.Position = UDim2.new(1, -40, 0.5, -10)
+        btn.Size = UDim2.new(0, 30, 0, 16)
+        btn.Position = UDim2.new(1, -30, 0.5, -8)
         btn.BackgroundColor3 = option and Color3.fromRGB(30, 58, 95) or Color3.fromRGB(60, 60, 60)
         btn.Text = ""
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
-        
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
         local knob = Instance.new("Frame", btn)
-        knob.Size = UDim2.new(0, 16, 0, 16)
-        knob.Position = option and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+        knob.Size = UDim2.new(0, 12, 0, 12)
+        knob.Position = option and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
         knob.BackgroundColor3 = Color3.new(1, 1, 1)
-        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 8)
-        
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 6)
+
         local state = option
         btn.MouseButton1Click:Connect(function()
             state = not state
             callback(state)
-            local c = state and Color3.fromRGB(30, 58, 95) or Color3.fromRGB(60, 60, 60)
-            local p = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
-            tween(btn, {BackgroundColor3 = c}, 0.2)
-            tween(knob, {Position = p}, 0.2)
+            btn.BackgroundColor3 = state and Color3.fromRGB(30, 58, 95) or Color3.fromRGB(60, 60, 60)
+            knob.Position = state and UDim2.new(1, -14, 0.5, -6) or UDim2.new(0, 2, 0.5, -6)
         end)
-        
-        y = y + 35
+
+        y = y + 28
+        return frame
     end
     
-    local function AddSlider(text, min, max, value, callback)
+    local function addSlider(text, min, max, value, callback)
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, -20, 0, 50)
-        frame.Position = UDim2.new(0, 10, 0, y)
+        frame.Size = UDim2.new(1, -10, 0, 45)
+        frame.Position = UDim2.new(0, 5, 0, y)
         frame.BackgroundTransparency = 1
         frame.Parent = content
-        
+
         local label = Instance.new("TextLabel", frame)
-        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Size = UDim2.new(1, 0, 0, 18)
         label.Font = Enum.Font.Gotham
         label.Text = text .. ": " .. value
         label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextSize = 14
+        label.TextSize = 12
         label.BackgroundTransparency = 1
-        
+
         local bar = Instance.new("Frame", frame)
-        bar.Size = UDim2.new(1, 0, 0, 8)
-        bar.Position = UDim2.new(0, 0, 0, 25)
+        bar.Size = UDim2.new(1, 0, 0, 6)
+        bar.Position = UDim2.new(0, 0, 0, 22)
         bar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 4)
-        
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 3)
+
         local fill = Instance.new("Frame", bar)
         fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
         fill.BackgroundColor3 = Color3.fromRGB(30, 58, 95)
-        Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
-        
+        Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+
         local thumb = Instance.new("TextButton", bar)
-        thumb.Size = UDim2.new(0, 16, 0, 16)
-        thumb.Position = UDim2.new((value - min) / (max - min), -8, 0.5, -8)
+        thumb.Size = UDim2.new(0, 14, 0, 14)
+        thumb.Position = UDim2.new((value - min) / (max - min), -7, 0.5, -7)
         thumb.BackgroundColor3 = Color3.new(1, 1, 1)
         thumb.Text = ""
-        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 8)
-        
+        Instance.new("UICorner", thumb).CornerRadius = UDim.new(0, 7)
+
         local dragging = false
+        local currentValue = value
+        
         local function update(input)
             local rel = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
             local val = math.floor(min + (max - min) * rel)
+            currentValue = val
             fill.Size = UDim2.new(rel, 0, 1, 0)
-            thumb.Position = UDim2.new(rel, -8, 0.5, -8)
+            thumb.Position = UDim2.new(rel, -7, 0.5, -7)
             label.Text = text .. ": " .. val
-            callback(val)
+            if callback then callback(val) end
         end
-        
-        thumb.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = true end end)
-        bar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = true update(i) end end)
-        UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end end)
-        UserInputService.InputChanged:Connect(function(i) if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then update(i) end end)
-        
-        y = y + 55
+
+        thumb.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+            end
+        end)
+        thumb.InputEnded:Connect(function() dragging = false end)
+        bar.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                update(i)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(i)
+            if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+                update(i)
+            end
+        end)
+
+        y = y + 48
+        return frame
     end
     
-    local function AddButton(text, callback)
+    local function addButton(text, callback)
         local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -20, 0, 32)
-        btn.Position = UDim2.new(0, 10, 0, y)
+        btn.Size = UDim2.new(1, -10, 0, 28)
+        btn.Position = UDim2.new(0, 5, 0, y)
         btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
         btn.Font = Enum.Font.Gotham
         btn.Text = text
         btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.TextSize = 14
+        btn.TextSize = 12
         btn.Parent = content
         Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
         
         btn.MouseButton1Click:Connect(function()
-            pcall(callback)
+            if callback then pcall(callback) end
         end)
         
-        y = y + 40
+        y = y + 32
+        return btn
     end
     
-    -- Tab content
-    if name == "Aimbot" then
-        AddToggle("Aimbot", Proton.Options.Aimbot, function(v) Proton.Options.Aimbot = v Proton:UpdateFOV() end)
-        AddSlider("FOV", 50, 300, Proton.Options.AimbotFOV, function(v) Proton.Options.AimbotFOV = v Proton:UpdateFOV() end)
-        AddToggle("Show FOV Circle", Proton.Options.ShowFOV, function(v) Proton.Options.ShowFOV = v Proton:UpdateFOV() end)
+    local function addLabel(text, color)
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -10, 0, 20)
+        label.Position = UDim2.new(0, 5, 0, y)
+        label.Font = Enum.Font.Gotham
+        label.Text = text
+        label.TextColor3 = color or Color3.new(1, 1, 1)
+        label.TextSize = 12
+        label.BackgroundTransparency = 1
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = content
+        y = y + 22
+        return label
+    end
+
+    if name == "Main" then
+        addToggle("💰 Coin Farm", Mini.Options.CoinFarm, function(v)
+            Mini:ToggleCoinFarm(v)
+        end)
         
-    elseif name == "ESP" then
-        AddToggle("Enable ESP", Proton.Options.ESPEnabled, function(v) Proton.Options.ESPEnabled = v end)
-        AddToggle("Box ESP", Proton.Options.ESPBox, function(v) Proton.Options.ESPBox = v end)
-        AddToggle("Skeleton ESP", Proton.Options.ESPSkeleton, function(v) Proton.Options.ESPSkeleton = v end)
-        AddToggle("Show Name", Proton.Options.ESPName, function(v) Proton.Options.ESPName = v end)
-        AddToggle("Show Distance", Proton.Options.ESPDistance, function(v) Proton.Options.ESPDistance = v end)
-        content.CanvasSize = UDim2.new(0, 0, 0, y + 20)
+        -- Slider de velocidade
+        addSlider("🚀 Speed", 16, 200, Mini.CurrentSpeed, function(v)
+            Mini.CurrentSpeed = v
+            if Mini.Options.CoinFarm then
+                Mini:SetSpeed(v)
+                Mini:Notify("🚀 Velocidade: " .. v)
+            end
+        end)
+        
+        addToggle("👁️ X-Ray", Mini.Options.XRay, function(v)
+            Mini:ToggleXRay(v)
+        end)
+        
+        addButton("🔪 Kill All (Murder)", function()
+            Mini:KillAll()
+        end)
+        
+        addToggle("⚔️ Kill Aura", Mini.Options.KillAura, function(v)
+            Mini:ToggleKillAura(v)
+        end)
+        
+    elseif name == "Player" then
+        local avatarFrame = Instance.new("Frame")
+        avatarFrame.Size = UDim2.new(1, -10, 0, 55)
+        avatarFrame.Position = UDim2.new(0, 5, 0, y)
+        avatarFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        avatarFrame.BackgroundTransparency = 0
+        avatarFrame.Parent = content
+        Instance.new("UICorner", avatarFrame).CornerRadius = UDim.new(0, 4)
+        y = y + 60
+        
+        local avatar = Instance.new("ImageLabel", avatarFrame)
+        avatar.Size = UDim2.new(0, 45, 0, 45)
+        avatar.Position = UDim2.new(0, 5, 0.5, -22.5)
+        avatar.BackgroundTransparency = 1
+        
+        local success, thumb = pcall(function()
+            return Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+        end)
+        if success and thumb then
+            avatar.Image = thumb
+        end
+        
+        local nameLabel = Instance.new("TextLabel", avatarFrame)
+        nameLabel.Size = UDim2.new(1, -65, 0, 20)
+        nameLabel.Position = UDim2.new(0, 55, 0, 5)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Text = LocalPlayer.Name
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.TextSize = 13
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        
+        addLabel("👤 Time: " .. Mini:GetTeam(LocalPlayer), Color3.fromRGB(200, 200, 200))
+        
+        local fpsLabel = addLabel("🎮 FPS: 0", Color3.fromRGB(200, 200, 200))
+        
+        if Mini.Connections.FPS then Mini.Connections.FPS:Disconnect() end
+        Mini.Connections.FPS = RunService.Heartbeat:Connect(function()
+            if fpsLabel and fpsLabel.Parent then
+                local fps = math.floor(1 / RunService.Heartbeat:Wait())
+                fpsLabel.Text = "🎮 FPS: " .. fps
+            end
+        end)
         
     elseif name == "Teleport" then
-        AddButton("Teleport to Gun", function() Proton:TeleportToGun() end)
+        addButton("🔫 Teleport Gun", function()
+            Mini:TeleportToGun()
+        end)
         
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                local teamName, teamColor = Proton:GetTeam(player)
-                AddButton(player.Name .. " [" .. teamName .. "]", function()
-                    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                        LocalPlayer.Character.HumanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame + Vector3.new(0, 2, 0)
-                        Proton:Notify("Teleport", "Teleportado para " .. player.Name, 2)
-                    end
-                end)
-            end
-        end
-        content.CanvasSize = UDim2.new(0, 0, 0, y + 20)
+        addButton("🔪 Teleport Murder", function()
+            Mini:TeleportToMurder()
+        end)
         
-    elseif name == "Logs" then
-        AddButton("Copy Team Logs", function() Proton:CopyLogs() end)
+        addButton("⭐ Teleport Sheriff", function()
+            Mini:TeleportToSheriff()
+        end)
         
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                local teamName, teamColor = Proton:GetTeam(player)
-                local infoLabel = Instance.new("TextLabel")
-                infoLabel.Size = UDim2.new(1, -20, 0, 25)
-                infoLabel.Position = UDim2.new(0, 10, 0, y)
-                infoLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-                infoLabel.Font = Enum.Font.Gotham
-                infoLabel.Text = "  " .. player.Name .. " - " .. teamName
-                infoLabel.TextColor3 = teamColor
-                infoLabel.TextSize = 14
-                infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-                infoLabel.Parent = content
-                Instance.new("UICorner", infoLabel).CornerRadius = UDim.new(0, 4)
-                y = y + 30
-            end
-        end
-        content.CanvasSize = UDim2.new(0, 0, 0, y + 20)
-        
-    elseif name == "Misc" then
-        AddToggle("Noclip", Proton.Options.Noclip, function(v) Proton.Options.Noclip = v end)
-        AddToggle("ESP Gun (Dropped)", Proton.Options.ESPGun, function(v) Proton.Options.ESPGun = v end)
-    end
-end
-
--- Initialize
-Proton:CreateWindow()
-Proton:Notify("Proton Menu", "Carregado com sucesso!", 3)
-
--- ESP Render Loop
-RunService.RenderStepped:Connect(function()
-    Proton:UpdateESP()
-end)
-
--- FOV Circle Update
-RunService.RenderStepped:Connect(function()
-    if Proton.FOVCircle then
-        Proton.FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    end
-end)
-
--- Noclip
-RunService.Stepped:Connect(function()
-    if Proton.Options.Noclip and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end
-end)
-
--- Gun ESP
-RunService.Heartbeat:Connect(function()
-    if Proton.Options.ESPGun then
-        for _, obj in pairs(workspace:GetChildren()) do
-            if obj:IsA("Tool") and obj.Name:lower():find("gun") and not obj:FindFirstChild("ProtonGunESP") then
-                local h = Instance.new("Highlight", obj)
-                h.Name = "ProtonGunESP"
-                h.FillColor = Color3.fromRGB(255, 255, 0)
-                h.FillTransparency = 0.3
-                h.Adornee = obj
-            end
-        end
-    end
-end)
-
--- Aimbot (Silent Aim)
-local mt = getrawmetatable(game)
-local oldNamecall = mt.__namecall
-setreadonly(mt, false)
-
-mt.__namecall = function(self, ...)
-    local args = {...}
-    local method = getnamecallmethod()
-    
-    if method == "FireServer" and Proton.Options.Aimbot then
-        local target = Proton:GetClosestMurderer()
-        if target and target.Character and target.Character:FindFirstChild("Head") then
-            for i, arg in pairs(args) do
-                if typeof(arg) == "Vector3" then
-                    args[i] = target.Character.Head.Position
-                    break
-                end
-            end
-        end
+        addButton("🏠 Teleport Lobby", function()
+            Mini:TeleportToLobby()
+        end)
     end
     
-    return oldNamecall(self, unpack(args))
+    content.CanvasSize = UDim2.new(0, 0, 0, y + 20)
 end
 
-setreadonly(mt, true)
-
-return Proton
+-- ======================
+-- INICIAR
+-- ======================
+Mini:CreateWindow()
+print("[Proton Mini] Carregado e aberto! (300x380)")
+return Mini
